@@ -87,10 +87,10 @@ Video Translator is a full-stack mobile application that enables users to transl
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd video-translator
+cd video_translator
 
-# Navigate to mobile app directory
-cd mobile
+# Navigate to frontend directory
+cd frontend
 
 # Install dependencies
 npm install
@@ -114,8 +114,8 @@ venv\Scripts\activate
 # On macOS/Linux:
 source venv/bin/activate
 
-# Install dependencies
-pip install flask whisper googletrans==4.0.0-rc1 gTTS moviepy supabase-py python-dotenv
+# Install dependencies from requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Run Instructions
@@ -135,11 +135,11 @@ python app.py
 
 The backend server will start on `http://localhost:5000`
 
-### Start Mobile App
+### Start Frontend App
 
 ```bash
-# Navigate to mobile app directory
-cd mobile
+# Navigate to frontend directory
+cd frontend
 
 # Start Expo development server
 npx expo start
@@ -172,7 +172,7 @@ WHISPER_MODEL=base  # Options: tiny, base, small, medium, large
 
 ### Frontend (.env)
 
-Create a `.env` file in the `mobile` directory:
+Create a `.env` file in the `frontend` directory:
 
 ```env
 # API Configuration
@@ -186,16 +186,16 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ## Project Structure
 
 ```
-video-translator/
-├── mobile/                 # Expo + Tamagui mobile app
-│   ├── app/               # App screens and navigation
-│   ├── components/        # Reusable UI components
-│   ├── services/          # API service layer
+video_translator/
+├── frontend/              # Expo + Tamagui mobile app
+│   ├── app/              # App screens and navigation
+│   ├── components/       # Reusable UI components
+│   ├── services/         # API service layer
 │   └── package.json
-├── backend/               # Flask API server
-│   ├── app.py            # Main Flask application
-│   ├── services/         # Business logic (transcription, translation, etc.)
-│   ├── utils/            # Helper functions
+├── backend/              # Flask API server
+│   ├── app.py           # Main Flask application
+│   ├── services/        # Business logic (transcription, translation, etc.)
+│   ├── utils/           # Helper functions
 │   └── requirements.txt
 └── README.md
 ```

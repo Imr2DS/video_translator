@@ -87,10 +87,10 @@ Video Translator is a full-stack mobile application that enables users to transl
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd video-translator
+cd video_translator
 
-# Navigate to mobile app directory
-cd mobile
+# Navigate to frontend directory
+cd frontend
 
 # Install dependencies
 npm install
@@ -114,8 +114,8 @@ venv\Scripts\activate
 # On macOS/Linux:
 source venv/bin/activate
 
-# Install dependencies
-pip install flask whisper googletrans==4.0.0-rc1 gTTS moviepy supabase-py python-dotenv
+# Install dependencies from requirements.txt
+pip install -r requirements.txt
 ```
 
 ## Run Instructions

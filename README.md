@@ -172,7 +172,7 @@ WHISPER_MODEL=base  # Options: tiny, base, small, medium, large
 
 ### Frontend (.env)
 
-Create a `.env` file in the `mobile` directory:
+Create a `.env` file in the `frontend` directory:
 
 ```env
 # API Configuration

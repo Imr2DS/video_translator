@@ -2,141 +2,259 @@ import os
 import uuid
 import tempfile
 import re
+from datetime import datetime
+import textwrap
+import requests
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from moviepy.editor import VideoFileClip, AudioFileClip
+from moviepy.editor import VideoFileClip, AudioFileClip, CompositeVideoClip, ImageClip
+from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
 from deep_translator import GoogleTranslator
 import whisper
 
-# ───────────────
-# Initialisation Supabase + Whisper
-# ───────────────
+# 🔹 Arabic support
+import arabic_reshaper
+from bidi.algorithm import get_display
+
+# ───────────────────
+# Initialisation
+# ───────────────────
 load_dotenv()
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # clé service role
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise Exception("❌ Les variables SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être définies dans .env")
+    raise Exception("❌ Variables Supabase manquantes")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 whisper_model = whisper.load_model("base")
 
-# ───────────────
-# Fonctions utilitaires
-# ───────────────
+# ✅ Police arabe lisible
+FONT_PATH = os.path.join("fonts", "Amiri-Regular.ttf")
+
+# ───────────────────
+# Utils
+# ───────────────────
 def sanitize_filename(name: str) -> str:
-    """Remplace les caractères spéciaux par '_' pour Supabase Storage."""
     return re.sub(r"[^a-zA-Z0-9_\-\.]", "_", name)
 
-def upload_to_supabase(file_path: str, bucket: str, expires_sec: int = None) -> str:
-    """Upload un fichier vers Supabase et retourne l'URL publique ou signée."""
-    file_path = str(file_path)
-    file_name = sanitize_filename(os.path.basename(file_path))
+def download_video(url: str) -> str:
+    r = requests.get(url, stream=True)
+    if r.status_code != 200:
+        raise Exception("Téléchargement vidéo impossible")
+
+    path = os.path.join(
+        tempfile.gettempdir(), f"video_{uuid.uuid4().hex}.mp4"
+    )
+    with open(path, "wb") as f:
+        for chunk in r.iter_content(8192):
+            f.write(chunk)
+    return path
+
+def upload_to_supabase(file_path: str, bucket: str) -> str:
+    filename = sanitize_filename(os.path.basename(file_path))
+    with open(file_path, "rb") as f:
+        supabase.storage.from_(bucket).upload(
+            filename, f.read(), {"upsert": "true"}
+        )
+    return supabase.storage.from_(bucket).get_public_url(filename)
+
+def fix_arabic_text(text: str) -> str:
+    reshaped = arabic_reshaper.reshape(text)
+    return get_display(reshaped)
+
+# ───────────────────
+# Subtitle creation
+# ───────────────────
+def create_subtitle_image(text: str, video_width: int, lang: str) -> str:
+    base_font_size = 40
+    padding = 24
+    max_width = int(video_width * 0.9)
 
     try:
-        with open(file_path, "rb") as f:
-            data = f.read()
-        supabase.storage.from_(bucket).upload(file_name, data)
-    except Exception as e:
-        raise Exception(f"⚠️ Erreur upload Supabase: {e}")
+        font = ImageFont.truetype(FONT_PATH, base_font_size)
+    except:
+        font = ImageFont.load_default()
 
-    # ✅ Récupération URL
-    try:
-        if expires_sec:
-            resp = supabase.storage.from_(bucket).create_signed_url(file_name, expires_sec)
-            if isinstance(resp, dict) and "signed_url" in resp:
-                return resp["signed_url"]
-            else:
-                raise Exception(f"Impossible de récupérer l’URL signée pour {file_name}")
-        else:
-            resp = supabase.storage.from_(bucket).get_public_url(file_name)
+    if lang == "ar":
+        text = fix_arabic_text(text)
 
-            # 👉 Nouvelle version du SDK : `resp` est directement une chaîne
-            if isinstance(resp, str) and resp.startswith("http"):
-                return resp
-            elif isinstance(resp, dict) and "public_url" in resp:
-                return resp["public_url"]
-            else:
-                raise Exception(f"Impossible de récupérer l’URL publique pour {file_name}")
+    # Auto wrap long text
+    temp_img = Image.new("RGBA", (10, 10))
+    draw = ImageDraw.Draw(temp_img)
 
-    except Exception as e:
-        raise Exception(f"⚠️ Erreur récupération URL publique Supabase: {e}")
+    while True:
+        wrapped = textwrap.fill(text, width=40)
+        bbox = draw.textbbox((0, 0), wrapped, font=font)
+        if bbox[2] - bbox[0] + padding * 2 <= max_width or base_font_size <= 12:
+            break
+        base_font_size -= 2
+        font = ImageFont.truetype(FONT_PATH, base_font_size)
 
-# ───────────────
-# Fonction principale
-# ───────────────
-def process_video(input_path: str, target_lang: str, user_id: str, original_url: str) -> dict:
-    """Transcrit, traduit, génère vidéo + miniature et ajoute une ligne dans la table 'videos'"""
-    input_path = str(input_path)
-    print(f"👤 User: {user_id} | Langue: {target_lang} | Fichier: {input_path}")
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    img_w = min(text_w + padding * 2, max_width)
+    img_h = text_h + padding * 2
+
+    img = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 200))
+    draw = ImageDraw.Draw(img)
+
+    x = (img_w - text_w) // 2
+    y = (img_h - text_h) // 2
+
+    draw.text((x, y), wrapped, fill="white", font=font)
+
+    path = os.path.join(
+        tempfile.gettempdir(), f"sub_{uuid.uuid4().hex}.png"
+    )
+    img.save(path)
+    return path
+
+def create_subtitled_video(clip, segments, target_lang):
+    subtitle_clips = []
+    translator = GoogleTranslator(source="auto", target=target_lang)
+
+    for seg in segments:
+        text = seg["text"].strip()
+        if not text:
+            continue
+
+        try:
+            translated = translator.translate(text)
+        except Exception as e:
+            print(f"⚠️ Traduction échouée pour segment: {e}")
+            translated = text
+
+        img_path = create_subtitle_image(translated, clip.w, target_lang)
+
+        sub = (
+            ImageClip(img_path)
+            .set_start(seg["start"])
+            .set_end(seg["end"])
+            .set_position(("center", clip.h - 80))
+        )
+        subtitle_clips.append(sub)
+
+    return CompositeVideoClip([clip] + subtitle_clips)
+
+def generate_thumbnail(video_path: str) -> str:
+    clip = VideoFileClip(video_path)
+    path = os.path.join(
+        tempfile.gettempdir(), f"thumb_{uuid.uuid4().hex}.jpg"
+    )
+    clip.save_frame(path, t=0.5)
+    clip.close()
+    return path
+
+# ───────────────────
+# Main video processing
+# ───────────────────
+def process_video(
+    original_url=None,
+    input_path=None,
+    target_lang="fr",
+    translation_mode="voice",
+    user_id="anonymous",
+    title="video"
+):
+    print(f"🎬 Mode={translation_mode} | Lang={target_lang} | User={user_id}")
+
+    if original_url:
+        input_path = download_video(original_url)
+
+    if not input_path or not os.path.exists(input_path):
+        raise Exception("Vidéo introuvable")
 
     clip = VideoFileClip(input_path)
 
-    # Audio temporaire
-    audio_path = os.path.join(tempfile.gettempdir(), f"temp_audio_{uuid.uuid4().hex[:8]}.wav")
-    clip.audio.write_audiofile(audio_path)
+    audio_path = os.path.join(
+        tempfile.gettempdir(), f"audio_{uuid.uuid4().hex}.wav"
+    )
+    clip.audio.write_audiofile(audio_path, logger=None)
 
-    # 1️⃣ Transcription
-    original_text = whisper_model.transcribe(audio_path)["text"]
-    print(f"📝 Transcription: {original_text}")
+    transcription = whisper_model.transcribe(audio_path)
+    segments = transcription["segments"]
+    full_text = transcription["text"]
 
-    # 2️⃣ Traduction
-    translated_text = GoogleTranslator(source="auto", target=target_lang).translate(original_text)
-    print(f"🌐 Traduction: {translated_text}")
+    if translation_mode == "subtitle":
+        final_clip = create_subtitled_video(clip, segments, target_lang)
+        out = os.path.join(
+            tempfile.gettempdir(), f"{uuid.uuid4().hex}_sub.mp4"
+        )
 
-    # 3️⃣ Synthèse vocale
-    translated_audio_path = os.path.join(tempfile.gettempdir(), f"translated_audio_{uuid.uuid4().hex[:8]}.mp3")
-    gTTS(translated_text, lang=target_lang).save(translated_audio_path)
+        final_clip.write_videofile(out, codec="libx264", audio_codec="aac")
 
-    # 4️⃣ Fusion audio + vidéo
-    translated_clip = clip.set_audio(AudioFileClip(str(translated_audio_path)))
+        url = upload_to_supabase(out, "translated_videos")
+        thumb = upload_to_supabase(
+            generate_thumbnail(out), "thumbnails"
+        )
 
-    # Nom unique vidéo traduite
-    unique_id = uuid.uuid4().hex[:8]
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    output_filename = f"{base_name}_translated_{target_lang}_{unique_id}.mp4"
-    output_path = os.path.join(tempfile.gettempdir(), output_filename)
+        supabase.table("videos").insert({
+            "user_id": user_id,
+            "title": title,
+            "original_url": original_url or "",
+            "translated_url": url,
+            "thumbnail_url": thumb,
+            "target_lang": target_lang,
+            "translation_mode": "subtitle",
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
 
-    translated_clip.write_videofile(str(output_path), codec="libx264", audio_codec="aac")
+        clip.close()
+        final_clip.close()
 
-    # 5️⃣ Miniature
-    thumbnail_filename = f"{base_name}_{unique_id}_thumbnail.jpg"
-    thumbnail_path = os.path.join(tempfile.gettempdir(), thumbnail_filename)
-    clip.save_frame(str(thumbnail_path), t=1.0)
+        return {
+            "translation_mode": "subtitle",
+            "translated_url": url,
+            "thumbnail_url": thumb
+        }
 
-    # 6️⃣ Uploads Supabase
+    # Voice mode
     try:
-        translated_url = upload_to_supabase(str(output_path), bucket="translated_videos", expires_sec=None)
-        thumbnail_url = upload_to_supabase(str(thumbnail_path), bucket="thumbnails", expires_sec=None)
+        translated = GoogleTranslator(
+            source="auto", target=target_lang
+        ).translate(full_text)
     except Exception as e:
-        raise Exception(f"⚠️ Erreur upload Supabase: {e}")
+        print(f"⚠️ Traduction échouée, on garde texte original: {e}")
+        translated = full_text
 
-    print(f"✅ URL traduite: {translated_url}")
-    print(f"🖼 Miniature: {thumbnail_url}")
+    tts_path = os.path.join(
+        tempfile.gettempdir(), f"tts_{uuid.uuid4().hex}.mp3"
+    )
+    gTTS(translated, lang=target_lang).save(tts_path)
 
-    # 7️⃣ Enregistrement dans la table 'videos'
-    video_row = {
+    voice_clip = clip.set_audio(AudioFileClip(tts_path))
+    out = os.path.join(
+        tempfile.gettempdir(), f"{uuid.uuid4().hex}_voice.mp4"
+    )
+
+    voice_clip.write_videofile(out, codec="libx264", audio_codec="aac")
+
+    url = upload_to_supabase(out, "translated_videos")
+    thumb = upload_to_supabase(
+        generate_thumbnail(out), "thumbnails"
+    )
+
+    supabase.table("videos").insert({
         "user_id": user_id,
-        "original_url": original_url,
-        "translated_url": translated_url,
+        "title": title,
+        "original_url": original_url or "",
+        "translated_url": url,
+        "thumbnail_url": thumb,
         "target_lang": target_lang,
-        "thumbnail": thumbnail_url
-    }
+        "translation_mode": "voice",
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
 
-    try:
-        supabase.table("videos").insert(video_row).execute()
-        print("🗃️ Ligne ajoutée dans 'videos'")
-    except Exception as e:
-        print(f"⚠️ Erreur insertion Supabase: {e}")
-
-    # Fermeture des clips
     clip.close()
-    translated_clip.close()
+    voice_clip.close()
 
     return {
-        "original_url": original_url,
-        "translated_url": translated_url,
-        "thumbnail": thumbnail_url,
-        "target_lang": target_lang
+        "translation_mode": "voice",
+        "translated_url": url,
+        "thumbnail_url": thumb
     }

@@ -1,72 +1,88 @@
 import os
-import tempfile
+import uuid
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.utils import secure_filename
 from video_translator import process_video
+from retranslate import retranslate_video  # 🔹 importer la fonction retranslate
 
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_FOLDER = tempfile.gettempdir()
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
+TEMP_DIR = "temp_videos"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.route("/translate", methods=["POST"])
-def translate_video():
+def translate():
     try:
-        # ────────────────
-        # Vérification du fichier
-        # ────────────────
-        video_file = None
-
-        # Certains clients envoient la vidéo dans `request.files`, d'autres dans `request.form`
-        if "video" in request.files:
-            video_file = request.files["video"]
-        elif "video" in request.form:
-            video_file = request.form["video"]
-
-        if not video_file:
-            return jsonify({"error": "Aucun fichier vidéo reçu"}), 400
-
-        # ────────────────
-        # Lecture des champs du formulaire
-        # ────────────────
-        target_lang = request.form.get("target_lang")
-        user_id = request.form.get("user_id")
+        target_lang = request.form.get("target_lang", "fr")
+        translation_mode = request.form.get("translation_mode", "voice")
+        user_id = request.form.get("user_id", "anonymous")
+        title = request.form.get("title", "video")
         original_url = request.form.get("original_url")
+        video_file = request.files.get("video")
 
-        # Valeurs par défaut pour éviter un crash (utile en dev)
-        if not target_lang:
-            target_lang = "fr"
-        if not user_id:
-            user_id = "anonymous_user"
-        if not original_url:
-            original_url = "unknown_source"
+        # URL Supabase
+        if original_url:
+            if not original_url.startswith("http"):
+                return jsonify({"error": "URL vidéo invalide"}), 400
 
-        print(f"📥 Requête reçue - Langue cible: {target_lang}, User: {user_id}")
+            result = process_video(
+                original_url=original_url,
+                target_lang=target_lang,
+                translation_mode=translation_mode,
+                user_id=user_id,
+                title=title
+            )
+            return jsonify(result), 200
 
-        # ────────────────
-        # Sauvegarde temporaire
-        # ────────────────
-        filename = secure_filename(video_file.filename)
-        input_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        video_file.save(input_path)
-        print(f"✅ Fichier sauvegardé : {input_path}")
+        # Upload local
+        if not video_file:
+            return jsonify({"error": "Fichier vidéo manquant"}), 400
 
-        # ────────────────
-        # Traitement principal
-        # ────────────────
-        result = process_video(input_path, target_lang, user_id, original_url)
-        print("🎬 Traitement terminé avec succès")
+        filename = f"{uuid.uuid4()}_{video_file.filename}"
+        temp_path = os.path.join(TEMP_DIR, filename)
+        video_file.save(temp_path)
 
+        result = process_video(
+            input_path=temp_path,
+            target_lang=target_lang,
+            translation_mode=translation_mode,
+            user_id=user_id,
+            title=title
+        )
         return jsonify(result), 200
 
     except Exception as e:
-        print(f"❌ Erreur serveur : {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+# ────────────────
+# RETRADUCTION
+# ────────────────
+@app.route("/retranslate", methods=["POST"])
+def retranslate():
+    try:
+        data = request.get_json()
+        video_id = data.get("video_id")
+        target_lang = data.get("target_lang")
+        translation_mode = data.get("translation_mode", "voice")
+
+        if not video_id or not target_lang:
+            return jsonify(
+                {"error": "video_id et target_lang requis"}
+            ), 400
+
+        # 🔹 Appeler la fonction retranslate
+        process_result = retranslate_video(
+            video_id, target_lang, translation_mode
+        )
+        return jsonify(process_result), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

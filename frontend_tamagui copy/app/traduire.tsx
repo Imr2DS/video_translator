@@ -22,7 +22,7 @@ import { Button } from "../components/Button";
 import { theme } from "../constants/theme";
 import { LANGUAGES } from "../constants/languages";
 
-const BACKEND_URL = "http://192.168.1.106:5000/translate";
+const BACKEND_URL = "http://192.168.1.51:5000/translate";
 
 export default function Traduire() {
   const router = useRouter();
@@ -182,6 +182,7 @@ export default function Traduire() {
             <Text style={styles.label}>Titre</Text>
             <Input value={title} onChangeText={setTitle} />
 
+            {/* ✅ Langue cible — même style que ModifierVideo */}
             <Text style={styles.label}>Langue cible</Text>
             <View style={styles.pickerContainer}>
               <Picker selectedValue={targetLang} onValueChange={setTargetLang}>
@@ -195,6 +196,7 @@ export default function Traduire() {
               </Picker>
             </View>
 
+            {/* ✅ Mode de traduction — même style */}
             <Text style={styles.label}>Mode de traduction</Text>
             <View style={styles.pickerContainer}>
               <Picker
@@ -229,7 +231,8 @@ export default function Traduire() {
                 Sous-titres générés ✔
               </Text>
             )}
-
+            
+            
             <Stack marginTop="$3">
               <Button
                 onPress={reset}
@@ -249,6 +252,7 @@ export default function Traduire() {
         )}
       </Stack>
 
+      {/* Barre inférieure */}
       <View style={styles.bottomBar}>
         <TouchableOpacity style={styles.bottomButton} onPress={() => router.push("/home")}>
           <MaterialCommunityIcons name="home" size={24} color="#888" />
@@ -271,6 +275,9 @@ export default function Traduire() {
   );
 }
 
+/* =======================
+   STYLES (identiques à ModifierVideo)
+======================= */
 const styles = StyleSheet.create({
   headerContainer: {
     backgroundColor: theme.colors.primary.DEFAULT,

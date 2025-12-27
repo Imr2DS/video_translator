@@ -186,16 +186,16 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ## Project Structure
 
 ```
-video-translator/
-├── mobile/                 # Expo + Tamagui mobile app
-│   ├── app/               # App screens and navigation
-│   ├── components/        # Reusable UI components
-│   ├── services/          # API service layer
+video_translator/
+├── frontend/              # Expo + Tamagui mobile app
+│   ├── app/              # App screens and navigation
+│   ├── components/       # Reusable UI components
+│   ├── services/         # API service layer
 │   └── package.json
-├── backend/               # Flask API server
-│   ├── app.py            # Main Flask application
-│   ├── services/         # Business logic (transcription, translation, etc.)
-│   ├── utils/            # Helper functions
+├── backend/              # Flask API server
+│   ├── app.py           # Main Flask application
+│   ├── services/        # Business logic (transcription, translation, etc.)
+│   ├── utils/           # Helper functions
 │   └── requirements.txt
 └── README.md
 ```

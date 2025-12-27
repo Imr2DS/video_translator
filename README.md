@@ -135,11 +135,11 @@ python app.py
 
 The backend server will start on `http://localhost:5000`
 
-### Start Mobile App
+### Start Frontend App
 
 ```bash
-# Navigate to mobile app directory
-cd mobile
+# Navigate to frontend directory
+cd frontend
 
 # Start Expo development server
 npx expo start
